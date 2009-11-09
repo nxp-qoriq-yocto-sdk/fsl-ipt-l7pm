@@ -1,6 +1,6 @@
 /************************< BEGIN COPYRIGHT >************************
  *
- * Copyright (C) 2007-2008 Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (C) 2007-2009 Freescale Semiconductor, Inc. All rights reserved.
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -13,27 +13,24 @@
  * connections. with pattern match engine
  */
 
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/skbuff.h>
 #include <net/netfilter/nf_conntrack.h>
-#include <net/netfilter/nf_conntrack_acct.h>
+#include <net/netfilter/nf_conntrack_core.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+  #include <net/netfilter/nf_conntrack_extend.h>
+  #include <net/netfilter/nf_conntrack_acct.h>
+#endif
 #include <linux/proc_fs.h>
 #include <linux/ctype.h>
 #include <net/ip.h>
 #include <net/tcp.h>
 #include <net/udp.h>
-#include <linux/spinlock.h>
 
 #include <linux/netfilter_ipv4/ipt_l7pm.h>
 #include <linux/netfilter_ipv4/ip_tables.h>
-
-/*
- * freescale pm includes
- */
-/*
- * #include "common.h"
- */
-#include "asm/8572pme.h"
+#include "asm/fsl_pme.h"
 
 MODULE_AUTHOR("alex xian");
 MODULE_LICENSE("GPL");
@@ -44,9 +41,6 @@ MODULE_VERSION("0.1");
 static uint8_t *result_buf;
 static int result_len = 1024;
 
-/*
- * freescale pm
- */
 /*
  * pme result code
  */
@@ -114,18 +108,11 @@ static int n_pme_ctx;
  * and it is not backwards compatable.  So, create some macros to check
  * for kernel version for each former nh call.
  */
-/*
- * #if LINUX_CODE_VERSION >= KERNEL_VERSION(2,6,22)
- */
 #define SKB_NH_PROTOCOL(b) (ip_hdr(b)->protocol)
 #define SKB_NH_IPH(b) (ip_hdr(b))
 #define SKB_NH_IHL(b) (ip_hdr(b)->ihl)
 #define SKB_NH_SADDR(b) (ip_hdr(b)->saddr)
 #define SKB_NH_DADDR(b) (ip_hdr(b)->daddr)
-
-/*
- * #endif
- */
 
 #define N_L7PM_STAT 64
 static struct l7pm_stat _l7pm_stat_buf[N_L7PM_STAT];
@@ -135,7 +122,7 @@ static int _l7pm_stat_num;
 #define MAX_PME_CHAN 4
 #define PME_NO_MATCH_RESULT_TAG 0	/* before match result come back */
 #define PME_UNKNOWN_TAG (-1)	/* unknown protocol tag */
-#define SKB_L7PM_SEEN(skb) (skb->cb[1])	/* l7pm control variable location
+#define SKB_L7PM_SEEN(skb) (skb->cb[0])	/* l7pm control variable location
 					 * in skb->cb[40]: seen this pkt
 					 * before */
 /*
@@ -169,13 +156,6 @@ static int dbg;
 #endif
 
 /*
- * #define TOTAL_PACKETS
- * master_conntrack->counters[IP_CT_DIR_ORIGINAL].packets +\
- */
-/*
- * master_conntrack->counters[IP_CT_DIR_REPLY].packets
- */
-/*
  * Number of packets whose data we look at. This can be modified through
  * /proc/net/l7pm_numpackets
  */
@@ -192,13 +172,9 @@ TOTAL_PACKETS(struct nf_conn *ct)
     return 0;
   return (unsigned long long) (acct[IP_CT_DIR_ORIGINAL].packets +
 			       acct[IP_CT_DIR_REPLY].packets);
-
-
-
 }
 
-static int
-can_handle(const struct sk_buff *skb)
+static int can_handle(const struct sk_buff *skb)
 {
   if (!SKB_NH_IPH(skb))		/* not IP */
     return 0;
@@ -212,8 +188,7 @@ can_handle(const struct sk_buff *skb)
 /*
  * Returns offset the into the skb->data that the application data starts
  */
-static int
-app_data_offset(const struct sk_buff *skb)
+static int app_data_offset(const struct sk_buff *skb)
 {
   /*
    * In case we are ported somewhere (ebtables?) where skb->nh.iph isn't
@@ -243,8 +218,7 @@ app_data_offset(const struct sk_buff *skb)
 /*
  * handles whether there's a match when we aren't appending data anymore
  */
-static int
-match_result(struct nf_conn *conntrack,
+static int match_result(struct nf_conn *conntrack,
 	     struct nf_conn *master_conntrack, struct ipt_l7pm_info *info)
 {
   DPRINTK("match_result(%p %p %p)\n", conntrack, master_conntrack, info);
@@ -474,17 +448,29 @@ out:
 /*
  * Returns true on match and false otherwise.
  */
-static int
-match(struct sk_buff *skb,
+static bool
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)
+match(const struct sk_buff *skbin, const struct xt_match_param *par)
+#else
+match(struct sk_buff *skbin,
       const struct net_device *in,
       const struct net_device *out,
       const struct xt_match *match,
       const void *matchinfo, int offset, unsigned int protooff, int *hotdrop)
+#endif
 {
 #ifdef COPY_DATA
   int i;
 #endif
-  struct ipt_l7pm_info *info = (struct ipt_l7pm_info *) matchinfo;
+  /* sidestep const without getting a compiler warning... */
+  struct sk_buff * skb = (struct sk_buff *)skbin;
+
+   const struct ipt_l7pm_info *  info = (struct ipt_l7pm_info *)
+   #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)
+	par->matchinfo;
+   #else
+	matchinfo;
+   #endif
   enum ip_conntrack_info master_ctinfo, ctinfo;
   struct nf_conn *master_conntrack, *conntrack;
   unsigned char *app_data, *ptr;
@@ -533,9 +519,6 @@ match(struct sk_buff *skb,
   DPRINTK("detect conntrack: %p %p, pme_ctx %p\n", master_conntrack,
 	  conntrack, master_conntrack->layer7.userctx);
   pme_ctx = (struct pme_context *) master_conntrack->layer7.userctx;
-  /*
-   * init conntrack layer7 attr
-   */
 #if 0
   if (pme_ctx == 0 && master_conntrack->layer7.tag == PME_NO_MATCH_RESULT_TAG) {
     write_lock(&ct_lock);
@@ -556,7 +539,8 @@ match(struct sk_buff *skb,
     DPRINTK("total_pkt %lld (max %d), tag=%x\n",
 	    TOTAL_PACKETS(master_conntrack), num_packets,
 	    master_conntrack->layer7.tag);
-    pattern_result = match_result(conntrack, master_conntrack, info);
+    pattern_result = match_result(conntrack, master_conntrack,
+		    (struct ipt_l7pm_info *) info);
     return pattern_result ^ info->invert;
   }
   /*
@@ -574,12 +558,14 @@ match(struct sk_buff *skb,
    * check if any l7 data in skb
    */
   if (skb_is_nonlinear(skb)) {
-    if (skb_linearize(skb) != 0) {
-      if (net_ratelimit())
-	printk(KERN_ERR "l7pm: failed to linearize packet, bailing.\n");
-      return info->invert;
-    }
-    DPRINTK("match: skb_linearize %p\n", skb);
+	if (skb_linearize((struct sk_buff *)skb) != 0) {
+		if (net_ratelimit()) {
+			printk(KERN_ERR "l7pm: failed to linearize packet,"
+				       "bailing.\n");
+			return info->invert;
+		}
+	}
+	DPRINTK("match: skb_linearize %p\n", skb);
   }
   /*
    * now that the skb is linearized, it's safe to set these.
@@ -591,7 +577,7 @@ match(struct sk_buff *skb,
    */
   DPRINTK("match: appdatalen %d\n", appdatalen);
   if (appdatalen == 0)
-    return info->invert;
+	return info->invert;
   DPRINTK("match: skb %d\n", skb->tail - skb->data);
 #if 1
   for (ptr = skb->data, i = 0; i < skb->tail - skb->data; i++)
@@ -618,7 +604,7 @@ match(struct sk_buff *skb,
       PME_PARAM_REPORT_VERBOSITY | PME_PARAM_END_OF_SUI_ENABLE;
     pme_params.pattern_set = info->set;
     pme_params.pattern_subset = 0xffff;
-    pme_params.session_id = 1;	/* (uint32_t) master_conntrack; 
+    pme_params.session_id = 1;	/* (uint32_t) master_conntrack;
 				 * session id has something to do
 				 * with sre ctx numbers */
     pme_params.mode =
@@ -710,7 +696,7 @@ match(struct sk_buff *skb,
   DPRINTK("\n");
 #endif
   if (pme_context_io_cmd
-      (pme_ctx, PME_FLAG_POLL, &cb, &dd_input, NULL, &dd_scan)) {
+      (pme_ctx, 0/*PME_FLAG_POLL*/, &cb, &dd_input, NULL, &dd_scan)) {
     printk(KERN_ERR "l7pm: failed to pme_context_io_cmd: num_skb=%d\n",
 	   master_conntrack->layer7.num_skb);
     write_lock(&ct_lock);
@@ -741,27 +727,30 @@ out:
   return info->invert;
 }
 
-static int
-checkentry(const char *tablename,
-	   const void *inf,
-	   const struct xt_match *match,
-	   void *matchinfo, unsigned int hook_mask)
+static bool checkentry(const struct xt_mtchk_param *par)
 {
   DPRINTK("ipt_l7pm: checkentry\n");
-  if (nf_ct_l3proto_try_module_get(match->family) < 0) {
-    printk(KERN_WARNING "can't load conntrack support for proto=%d\n",
-	   match->family);
-    return 0;
+  if (nf_ct_l3proto_try_module_get(par->match->family) < 0) {
+	printk(KERN_WARNING "can't load conntrack support for "
+	"proto=%d\n", par->match->family);
+	return 0;
   }
   return 1;
 }
 
-static void
-destroy(const struct xt_match *match, void *matchinfo)
+
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)
+static void destroy(const struct xt_mtdtor_param *par)
+{
+  nf_ct_l3proto_module_put(par->match->family);
+}
+#else
+static void destroy(const struct xt_match *match, void *matchinfo)
 {
   nf_ct_l3proto_module_put(match->family);
 }
-
+#endif
 
 static struct xt_match l7pm_match[] = {
   {
