@@ -1,7 +1,16 @@
-obj-m := ipt_l7pm.o
+#***********************< BEGIN COPYRIGHT >************************
+#
+# Copyright (C) 2007-2011 Freescale Semiconductor, Inc. All rights reserved.
+#
+# This is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+#***********************< END COPYRIGHT >***************************/
 
-KERNEL_SRC       := /local/paul/8572_nov_rel/linux-2.6.30-fsl
-KERNEL_ARGS      := SUBDIRS=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
+obj-m       := ipt_l7pm.o
+KERNEL_ARGS := SUBDIRS=$(PWD) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
 
 .PHONY: build_modules clean
 default: build_modules

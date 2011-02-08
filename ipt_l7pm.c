@@ -1,6 +1,6 @@
 /************************< BEGIN COPYRIGHT >************************
  *
- * Copyright (C) 2007-2009 Freescale Semiconductor, Inc. All rights reserved.
+ * Copyright (C) 2007-2011 Freescale Semiconductor, Inc. All rights reserved.
  *
  * This is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -174,6 +174,7 @@ TOTAL_PACKETS(struct nf_conn *ct)
 			       acct[IP_CT_DIR_REPLY].packets);
 }
 
+/* returns 1 for IP */
 static int can_handle(const struct sk_buff *skb)
 {
   if (!SKB_NH_IPH(skb))		/* not IP */
@@ -449,7 +450,9 @@ out:
  * Returns true on match and false otherwise.
  */
 static bool
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35)
+match(const struct sk_buff *skbin, struct xt_action_param *par)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 28)
 match(const struct sk_buff *skbin, const struct xt_match_param *par)
 #else
 match(struct sk_buff *skbin,
@@ -727,15 +730,21 @@ out:
   return info->invert;
 }
 
-static bool checkentry(const struct xt_mtchk_param *par)
+/* Note: as of 2.6.35, the ret code has changed */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35)
+static int
+#else
+static bool
+#endif
+checkentry(const struct xt_mtchk_param *par)
 {
   DPRINTK("ipt_l7pm: checkentry\n");
   if (nf_ct_l3proto_try_module_get(par->match->family) < 0) {
 	printk(KERN_WARNING "can't load conntrack support for "
 	"proto=%d\n", par->match->family);
-	return 0;
+	return -EINVAL;
   }
-  return 1;
+  return 0;
 }
 
 
