@@ -1,0 +1,31 @@
+	   README for Netfilter Layer 7 Kernel Proof-Of-Concept Application With
+	   PME Support
+
+Copyright (C) 2008 Freescale Semiconductor, Inc. All rights reserved.
+
+This directory "fsl_ipt_l7pm/" contains the application for the netfilter layer
+7 filter kernel module with support for the PME driver.
+
+Requirements:
+	-kernel 2.6.27.2+
+	-PME driver
+	-Kernel Patches:
+		-netfilter-layer7-v2.20/kernel-2.6.25-layer7-2.20.patch
+		(*note requires following patch)
+		-8572-netfilter-v2.20-fix-for-kernel-2.6.27.patch
+		-8572-PME-support-for-layer-7-filter.patch
+	-Userspace IPTABLES Patches:
+		-userspace-iptables-1.4.2-l7pme-1.patch
+
+* Note that all patching and building is handled by LTIB
+
+1. The code in "fsl_ipt_l7pm":
+* All the code in the "fsl_ipt_l7pm" directory is developed at Freescale Ottawa
+Technology Center, and licensed under the terms of the GNU Public License
+(GPLv2, see COPYING). 
+
+2. The code is designed to be built as an external kernel module.  Please see
+the Makefile for details.
+
+3. The kernel must have fsl_pme and netfilter layer 7 enabled. 
+
